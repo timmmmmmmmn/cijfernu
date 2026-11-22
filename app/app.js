@@ -355,38 +355,55 @@ function getal(s) {
   return /^\d+(\.\d+)?$/.test(t) ? parseFloat(t) : null;
 }
 function maakCijfer(r) {
-  const tekst = r.geldendResultaat ?? r.resultaat ?? r.resultaatLabel ?? '';
-  const c = getal(tekst);
+  const ex = r.additionalObjects || {};
+  // nieuwe api: formattedResultaat/label en additionalObjects.vaknaam; oude api: geldendResultaat en vak.naam
+  const tekst = r.formattedResultaat ?? r.geldendResultaat ?? r.resultaat ?? r.label ?? r.labelAfkorting ?? '';
+  const c = typeof r.cijfer === 'number' ? r.cijfer : getal(tekst);
+  const datum = Date.parse(r.datumInvoer) || Date.parse(r.datumInvoerHerkansing1) || Date.parse(r.datumInvoerEerstePoging) || 0;
   return {
-    id: linkId(r),
+    id: linkId(r) || `${ex.vaknaam || r.vak?.naam}-${r.omschrijving}-${datum}`,
     type: r.type || '',
-    vak: r.vak?.naam || r.additionalObjects?.vaknaam || 'Onbekend vak',
+    vak: ex.vaknaam || r.vak?.naam || 'Onbekend vak',
     afk: r.vak?.afkorting || '',
     tekst: String(tekst).replace('.', ','),
     cijfer: c,
     weging: r.weging ?? r.examenWeging ?? 0,
     examenWeging: r.examenWeging ?? 0,
-    omschrijving: r.omschrijving || r.resultaatkolom?.naam || r.additionalObjects?.resultaatkolom?.naam || '',
-    datum: Date.parse(r.datumInvoer) || 0,
+    omschrijving: r.omschrijving || ex.resultaatkolom?.naam || ex.resultaatkolom || '',
+    datum,
     periode: r.periode ?? null,
     voldoende: r.isVoldoende ?? (c == null ? null : c >= 5.5),
     telt: !r.teltNietmee && !r.toetsNietGemaakt,
-    herkansing: r.herkansingstype && r.herkansingstype !== 'Geen' ? r.herkansingstype : '',
+    herkansing: r.formattedHerkansing1 || r.formattedHerkansing2 ? 'herkanst' : r.herkansingstype && r.herkansingstype !== 'Geen' ? r.herkansingstype : '',
+    examen: !!r.examen,
   };
 }
+const CIJFERPARAMS = 'type=Toetskolom&type=DeeltoetsKolom&type=Werkstukcijferkolom&type=Advieskolom&additional=vaknaam&additional=resultaatkolom&additional=naamalternatiefniveau&additional=vakuuid&additional=lichtinguuid&sort=desc-geldendResultaatCijferInvoer';
+const geenEndpoint = (f) => [400, 403, 404, 405].includes(f.status);
 const laadCijfers = eenTegelijk(async () => {
   return bezig((async () => {
     const l = await haalLeerling();
-    const items = await alles(`resultaten/huidigVoorLeerling/${l.id}?additional=berekendRapportCijfer`);
+    let items;
+    try {
+      // huidige SOMtoday: voortgangsdossier, plus het examendossier (SE-cijfers in de bovenbouw)
+      const voortgang = await alles(`geldendvoortgangsdossierresultaten/leerling/${l.id}?${CIJFERPARAMS}`);
+      const examen = await alles(`geldendexamendossierresultaten/leerling/${l.id}?${CIJFERPARAMS}`).catch(() => []);
+      const gezien = new Set(voortgang.map(linkId));
+      items = voortgang.concat(examen.filter((x) => !(linkId(x) && gezien.has(linkId(x)))).map((x) => ({ ...x, examen: true })));
+    } catch (f) {
+      if (!geenEndpoint(f)) throw f;
+      items = await alles(`resultaten/huidigVoorLeerling/${l.id}?additional=berekendRapportCijfer`); // oudere SOMtoday
+    }
     const lijst = items.map(maakCijfer);
-    const cijfers = lijst.filter((c) => CIJFERTYPES.includes(c.type) && c.tekst !== '').sort((a, b) => b.datum - a.datum);
+    const cijfers = lijst.filter((c) => (!c.type || CIJFERTYPES.includes(c.type)) && c.tekst !== '').sort((a, b) => b.datum - a.datum);
     const gemiddelden = lijst.filter((c) => /Gemiddelde|RapportCijfer/i.test(c.type) && c.cijfer != null);
     if (state.gezienCijfers == null) state.gezienCijfers = cijfers.map((c) => c.id); // eerste keer: niets is nieuw
     state.cijfers = { cijfers, gemiddelden, t: Date.now() };
+    state.cijferFout = null;
     zet('cijfers', state.cijfers);
     zet('gezienCijfers', state.gezienCijfers);
     return state.cijfers;
-  })());
+  })()).catch((f) => { state.cijferFout = f; throw f; });
 });
 function gemiddelde(lijst) {
   let som = 0, w = 0;
@@ -588,7 +605,7 @@ function ververs(v = state.view, stil = false) {
   const nu = Date.now();
   const oud = (k, ms) => { if (!stil || !laatst[k] || nu - laatst[k] > ms) { laatst[k] = nu; return true; } return false; };
   const klaar = () => views[state.view] && render();
-  const fout = (e) => { if (!stil) toast(e.message); };
+  const fout = (e) => { if (!stil) toast(e.message); if (views[state.view]) render(); };
   const taken = [];
   if (v === 'vandaag' || v === 'rooster') {
     const maandag = v === 'rooster' ? state.maandag : maandagVan(new Date());
@@ -815,7 +832,13 @@ function spark(lijst, w = 140, h = 26) {
 function renderCijfers() {
   const view = $('#view');
   const data = state.cijfers;
-  if (!data) { view.innerHTML = '<div class="skel"></div><div class="skel"></div><div class="skel"></div>'; return; }
+  if (!data) {
+    const f = state.cijferFout;
+    view.innerHTML = f
+      ? `<div class="empty">${icon('alert')}<b>Cijfers laden lukt niet</b>${esc(f.message)}${f.status ? ` (code ${f.status})` : ''}<button class="btn primary" data-opnieuw style="margin-top:6px">${icon('sync')}Opnieuw proberen</button></div>`
+      : '<div class="skel"></div><div class="skel"></div><div class="skel"></div>';
+    return;
+  }
   const gezien = new Set(state.gezienCijfers || []);
   const perioden = [...new Set(data.cijfers.map((c) => c.periode).filter((p) => p != null))].sort((a, b) => a - b);
   const lijst = data.cijfers.filter((c) => state.periode == null || c.periode === state.periode);
@@ -1358,6 +1381,7 @@ document.addEventListener('click', (e) => {
   const t = e.target;
   let b;
   if (t.closest('[data-nieuw]')) { nieuweTaak(); return; }
+  if (t.closest('[data-opnieuw]')) { haptic(); state.cijferFout = null; for (const k in laatst) delete laatst[k]; render(); ververs(state.view, false); return; }
   if ((b = t.closest('[data-vink]'))) { e.stopPropagation(); vink(b.dataset.vink); return; }
   if ((b = t.closest('[data-goto]'))) {
     if (b.dataset.dag) { const [j, m, d] = b.dataset.dag.split('-').map(Number); state.gekozen = new Date(j, m - 1, d); state.maandag = maandagVan(state.gekozen); }

@@ -121,15 +121,32 @@ object Meldingen {
 
     private fun linkId(o: JSONObject): String = o.optJSONArray("links")?.optJSONObject(0)?.optString("id").orEmpty().ifEmpty { o.optString("id") }
 
+    private const val CIJFERPARAMS = "type=Toetskolom&type=DeeltoetsKolom&type=Werkstukcijferkolom&type=Advieskolom" +
+        "&additional=vaknaam&additional=resultaatkolom&additional=naamalternatiefniveau&additional=vakuuid&additional=lichtinguuid" +
+        "&sort=desc-geldendResultaatCijferInvoer"
+
+    /** Huidige SOMtoday: voortgangs- en examendossier; oudere: resultaten/huidigVoorLeerling. */
+    private fun haalCijfers(ctx: Context, leerling: Long): List<JSONObject> = try {
+        val voortgang = Som.alles(ctx, "geldendvoortgangsdossierresultaten/leerling/$leerling?$CIJFERPARAMS")
+        val examen = runCatching { Som.alles(ctx, "geldendexamendossierresultaten/leerling/$leerling?$CIJFERPARAMS") }.getOrDefault(emptyList())
+        val ids = voortgang.map { linkId(it) }.filter { it.isNotEmpty() }.toSet()
+        voortgang + examen.filter { linkId(it).let { id -> id.isEmpty() || id !in ids } }
+    } catch (e: Som.Fout) {
+        if (e.status !in listOf(400, 403, 404, 405)) throw e
+        Som.alles(ctx, "resultaten/huidigVoorLeerling/$leerling")
+    }
+
+    private fun resultaat(c: JSONObject): String =
+        listOf("formattedResultaat", "geldendResultaat", "resultaat", "label").map { c.optString(it) }.firstOrNull { it.isNotEmpty() && it != "null" }.orEmpty()
+
     private fun cijfers(ctx: Context, leerling: Long) {
-        val items = Som.alles(ctx, "resultaten/huidigVoorLeerling/$leerling")
-        val cijfers = items.filter { it.optString("type") in CIJFERTYPES && it.optString("geldendResultaat").isNotEmpty() }
-        val sleutels = cijfers.associate { linkId(it) to it.optString("geldendResultaat") }
+        val cijfers = haalCijfers(ctx, leerling).filter { (it.optString("type").isEmpty() || it.optString("type") in CIJFERTYPES) && resultaat(it).isNotEmpty() }
+        val sleutels = cijfers.associate { linkId(it) to resultaat(it) }
         val nieuw = nieuw(ctx, "cijfers", sleutels).keys
         val tonen = aan(ctx, "cijferTonen")
         cijfers.filter { linkId(it) in nieuw }.take(6).forEach { c ->
-            val vak = c.optJSONObject("vak")?.optString("naam").orEmpty().ifEmpty { "een vak" }
-            val cijfer = c.optString("geldendResultaat").replace('.', ',')
+            val vak = c.optJSONObject("additionalObjects")?.optString("vaknaam").orEmpty().ifEmpty { c.optJSONObject("vak")?.optString("naam").orEmpty() }.ifEmpty { "een vak" }
+            val cijfer = resultaat(c).replace('.', ',')
             val wat = c.optString("omschrijving").ifEmpty { null }
             meld(
                 ctx, "cijfers", "cijfer-${linkId(c)}".hashCode(),

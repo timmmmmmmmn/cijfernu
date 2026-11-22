@@ -74,7 +74,13 @@ function cijfers() {
   }
   // het nieuwste cijfer: vanochtend
   items.push({ links: [{ id: 'nieuw1' }], type: 'Toetskolom', geldendResultaat: '8.4', weging: 2, datumInvoer: iso(new Date(nu - 3 * 3600000)), omschrijving: 'Toets H5 mechanica', periode: 2, vak: vak(VAKKEN[3]) });
-  return items;
+  // in de vorm van de huidige api (geldendvoortgangsdossierresultaten)
+  return items.map((x) => ({
+    links: x.links, type: x.type, omschrijving: x.omschrijving, weging: x.weging, periode: x.periode, datumInvoer: x.datumInvoer,
+    formattedResultaat: x.geldendResultaat.replace('.', ','), cijfer: /\d/.test(x.geldendResultaat) ? parseFloat(x.geldendResultaat) : undefined,
+    isVoldoende: x.isVoldoende ?? parseFloat(x.geldendResultaat) >= 5.5,
+    additionalObjects: { vaknaam: x.vak.naam },
+  }));
 }
 
 function huiswerk(soort) {
@@ -147,7 +153,8 @@ export async function antwoord(methode, pad) {
     const jan4 = new Date(+m[1], 0, 4);
     return lijst(week(new Date(maandag(jan4).getTime() + (+m[2] - 1) * 7 * DAY + 12 * 3600000)).map((x) => x));
   }
-  if (p.startsWith('resultaten/huidigVoorLeerling')) return lijst(cijfers());
+  if (p.startsWith('geldendvoortgangsdossierresultaten/leerling/')) return lijst(cijfers());
+  if (p.startsWith('geldendexamendossierresultaten/leerling/')) return lijst([]);
   if (p === 'studiewijzeritemafspraaktoekenningen') return lijst(huiswerk('afspraak'));
   if (p === 'studiewijzeritemdagtoekenningen') return lijst(huiswerk('dag'));
   if (p === 'studiewijzeritemweektoekenningen') return lijst(huiswerk('week'));
