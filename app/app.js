@@ -616,8 +616,7 @@ function renderVandaag() {
   const vandaag = middernacht(new Date());
   const naam = state.leerling?.roepnaam;
   const u = new Date().getHours();
-  $('#kicker').textContent = `${u < 6 ? 'Goedenacht' : u < 12 ? 'Goedemorgen' : u < 18 ? 'Goedemiddag' : 'Goedenavond'}${naam ? ', ' + naam : ''}`;
-  $('#title').textContent = hoofd(`${DAGEN[vandaag.getDay()]} ${vandaag.getDate()} ${MAANDEN[vandaag.getMonth()].slice(0, 3)}`);
+  $('#kicker').textContent = `${u < 6 ? 'Goedenacht' : u < 12 ? 'Goedemorgen' : u < 18 ? 'Goedemiddag' : 'Goedenavond'}${naam ? ', ' + naam : ''} · ${DAGEN[vandaag.getDay()]} ${vandaag.getDate()} ${MAANDEN[vandaag.getMonth()].slice(0, 3)}`;
 
   let html = '';
   const geladen = state.weken[weekSleutel(vandaag)];
