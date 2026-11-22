@@ -228,7 +228,16 @@ button.item:active { background: var(--hover); }
 .stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
 .stat { background: var(--surface); border: 1px solid var(--line); border-radius: 16px; padding: 11px 12px; box-shadow: var(--shadow-sm); }
 .stat b { display: block; font-family: var(--display); font-size: 26px; font-weight: 720; line-height: 1.1; font-variant-numeric: tabular-nums; }
-.stat span { font-size: 13px; color: var(--muted); }
+.stat span { font-size: 13px; color: var(--muted); display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+button.stat { text-align: left; font: inherit; color: inherit; }
+button.stat:active { transform: scale(.98); }
+.morgen { display: flex; gap: 14px; align-items: center; width: 100%; text-align: left; padding: 14px; border-radius: 18px; border: 1px solid var(--line); background: var(--surface); box-shadow: var(--shadow-sm); font: inherit; color: inherit; }
+.morgen:active { transform: scale(.99); }
+.morgen-tijd { flex: none; width: 64px; padding: 8px 0; border-radius: 14px; background: var(--accent-soft); color: var(--accent-ink); text-align: center; line-height: 1.1; }
+.morgen-tijd b { display: block; font-family: var(--display); font-size: 22px; font-weight: 750; }
+.morgen-tijd span { font-size: 12px; font-weight: 650; opacity: .8; }
+.morgen-vakken { display: flex; gap: 4px; margin: 6px 0 2px; }
+.morgen-vakken i { height: 6px; flex: 1; max-width: 34px; border-radius: 3px; background: var(--c); }
 
 /* ---------- Rooster ---------- */
 

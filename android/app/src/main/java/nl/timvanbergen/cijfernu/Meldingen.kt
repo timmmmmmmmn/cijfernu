@@ -30,7 +30,8 @@ import java.util.concurrent.TimeUnit
 
 /**
  * Meldingen op de achtergrond: elk kwartier (als Android het toelaat) kijken of er iets nieuws is in SOMtoday:
- * een cijfer, een les die vervalt of van lokaal wisselt, een nieuwe toets of huiswerk, of een bericht.
+ * een cijfer, een les die vervalt of van lokaal wisselt, of een bericht. (Huiswerk niet: dat zetten de docenten
+ * niet in SOMtoday. Je eigen taken hebben hun eigen herinneringen, zie Taken.kt.)
  * De eerste keer wordt alleen onthouden wat er al was, zodat je niet overspoeld wordt.
  */
 object Meldingen {
@@ -38,9 +39,8 @@ object Meldingen {
     private const val PREFS = "meldingen"
     const val EXTRA_TAB = "tab"
 
-    val SOORTEN = listOf("cijfers", "rooster", "toetsen", "huiswerk", "berichten")
-    private val STANDAARD = mapOf("cijfers" to true, "rooster" to true, "toetsen" to true, "huiswerk" to false, "berichten" to true, "cijferTonen" to true)
-    private val NAMEN = mapOf("cijfers" to "Nieuwe cijfers", "rooster" to "Roosterwijzigingen", "toetsen" to "Nieuwe toetsen", "huiswerk" to "Nieuw huiswerk", "berichten" to "Berichten")
+    private val STANDAARD = mapOf("cijfers" to true, "rooster" to true, "berichten" to true, "cijferTonen" to true)
+    private val NAMEN = mapOf("cijfers" to "Nieuwe cijfers", "rooster" to "Roosterwijzigingen", "berichten" to "Berichten")
 
     private val CIJFERTYPES = setOf("Toetskolom", "DeeltoetsKolom", "Werkstukcijferkolom", "Advieskolom", "SamengesteldeToetsKolom", "RapportToetskolom")
 
@@ -62,6 +62,8 @@ object Meldingen {
 
     fun kanalen(ctx: Context) {
         val m = ctx.getSystemService(NotificationManager::class.java)
+        // van eerdere versies: huiswerk uit SOMtoday wordt niet meer gevolgd
+        listOf("toetsen", "huiswerk").forEach { runCatching { m.deleteNotificationChannel(it) } }
         NAMEN.forEach { (id, naam) ->
             if (m.getNotificationChannel(id) == null) {
                 m.createNotificationChannel(NotificationChannel(id, naam, if (id == "rooster" || id == "cijfers") NotificationManager.IMPORTANCE_HIGH else NotificationManager.IMPORTANCE_DEFAULT))
@@ -99,7 +101,6 @@ object Meldingen {
             // Elk onderdeel apart: als er één misgaat, gaan de andere gewoon door.
             runCatching { if (aan(ctx, "cijfers")) cijfers(ctx, id) }
             runCatching { if (aan(ctx, "rooster")) rooster(ctx, id) }
-            runCatching { if (aan(ctx, "toetsen") || aan(ctx, "huiswerk")) huiswerk(ctx) }
             runCatching { if (aan(ctx, "berichten")) berichten(ctx) }
             return Result.success()
         }
@@ -185,27 +186,6 @@ object Meldingen {
         }
         val sleutel = linkId(a).ifEmpty { "$begin-$vak" }
         return Les(sleutel, begin, a.optInt("beginLesuur", 0).takeIf { it > 0 }, vak, a.optString("locatie"), uitval, letOp)
-    }
-
-    private fun huiswerk(ctx: Context) {
-        val vanaf = LocalDate.now().toString()
-        val items = ArrayList<JSONObject>()
-        for (soort in listOf("studiewijzeritemafspraaktoekenningen", "studiewijzeritemdagtoekenningen")) {
-            runCatching { items.addAll(Som.alles(ctx, "$soort?begintNaOfOp=$vanaf")) }
-        }
-        val sleutels = items.associate { linkId(it) to "1" }
-        val nieuw = nieuw(ctx, "huiswerk", sleutels).filterValues { it == null }.keys
-        items.filter { linkId(it) in nieuw }.take(6).forEach { h ->
-            val item = h.optJSONObject("studiewijzerItem") ?: h.optJSONObject("additionalObjects")?.optJSONObject("studiewijzerItem") ?: return@forEach
-            val type = item.optString("huiswerkType")
-            val toets = type == "TOETS" || type == "GROTE_TOETS"
-            if (toets && !aan(ctx, "toetsen") || !toets && !aan(ctx, "huiswerk")) return@forEach
-            val vak = h.optJSONObject("lesgroep")?.optJSONObject("vak")?.optString("naam").orEmpty()
-            val datum = runCatching { OffsetDateTime.parse(h.optString("datumTijd")).toInstant().toEpochMilli() }.getOrNull()
-            val titel = (if (type == "GROTE_TOETS") "Nieuwe grote toets" else if (toets) "Nieuwe toets" else "Nieuw huiswerk") + (if (vak.isNotEmpty()) " · $vak" else "")
-            val tekst = listOfNotNull(datum?.let { wanneer(it).replaceFirstChar { c -> c.uppercase() } }, item.optString("onderwerp").ifEmpty { null }).joinToString(": ")
-            meld(ctx, if (toets) "toetsen" else "huiswerk", "hw-${linkId(h)}".hashCode(), titel, tekst, "huiswerk")
-        }
     }
 
     private fun berichten(ctx: Context) {

@@ -27,6 +27,7 @@ const ICONS = {
   calendar: 'M5 5h14a1.5 1.5 0 0 1 1.5 1.5V19a1.5 1.5 0 0 1-1.5 1.5H5A1.5 1.5 0 0 1 3.5 19V6.5A1.5 1.5 0 0 1 5 5zM3.5 10h17M8 3v4M16 3v4',
   chart: 'M4 20h16M7 16v-5M12 16V7M17 16v-8',
   book: 'M5 4.5h5.5A2.5 2.5 0 0 1 13 7v13a2 2 0 0 0-2-2H5zM19 4.5h-3.5A2.5 2.5 0 0 0 13 7v13a2 2 0 0 1 2-2h4z',
+  taken: 'M10 6h10M10 12h10M10 18h10M3.5 6l1.5 1.5L7.5 5M3.5 12l1.5 1.5 2.5-2.5M3.5 18l1.5 1.5 2.5-2.5',
   plus: 'M12 5v14M5 12h14',
   more: 'M5 12h.01M12 12h.01M19 12h.01',
   mail: 'M4 6h16v12H4zM4 7l8 6 8-6',
@@ -474,6 +475,7 @@ async function zetGemaakt(h, aan) {
     const t = state.eigen.find((x) => x.id === h.id);
     if (t) t.gemaakt = aan;
     zet('eigen', state.eigen);
+    syncHerinneringen();
     return;
   }
   state.gemaakt[h.id] = aan;
@@ -539,7 +541,8 @@ async function laadVakanties() {
 
 // ---------- weergave ----------
 
-const TITELS = { vandaag: 'Vandaag', rooster: 'Rooster', cijfers: 'Cijfers', huiswerk: 'Huiswerk' };
+// 'huiswerk' heet in beeld Taken: je eigen planner (en wat docenten eventueel toch in SOMtoday zetten).
+const TITELS = { vandaag: 'Vandaag', rooster: 'Rooster', cijfers: 'Cijfers', huiswerk: 'Taken' };
 const views = { vandaag: renderVandaag, rooster: renderRooster, cijfers: renderCijfers, huiswerk: renderHuiswerk };
 
 function render() {
@@ -596,7 +599,7 @@ function ververs(v = state.view, stil = false) {
     }
   }
   if ((v === 'vandaag' || v === 'cijfers') && oud('cijfers', 120000)) taken.push(laadCijfers());
-  if ((v === 'vandaag' || v === 'huiswerk' || v === 'rooster') && oud('huiswerk', 120000)) taken.push(laadHuiswerk());
+  if (v === 'huiswerk' && oud('huiswerk', 300000)) taken.push(laadHuiswerk().catch(() => state.huiswerk));
   if (oud('berichten', 300000)) taken.push(laadBerichten().catch(() => {}));
   if (!state.vakanties && oud('vakanties', 3600000)) taken.push(laadVakanties());
   for (const t of taken) t.then(klaar, fout);
@@ -664,28 +667,32 @@ function renderVandaag() {
     html += `<div class="h">Rooster vandaag<button data-goto="rooster" data-dag="${ymd(vandaag)}">Hele week</button></div><div class="lessons">${lessenHtml(lessen, true)}</div>`;
   }
 
-  // Huiswerk dat eraan komt
-  const hw = huiswerkLijst();
-  const grens = (volgendeDag ? middernacht(volgendeDag.d).getTime() : vandaag.getTime() + DAY) + DAY;
-  const voorMorgen = hw.filter((h) => !isGemaakt(h) && h.datum >= vandaag.getTime() && h.datum < grens && h.soort !== 'week');
-  const toetsen = hw.filter((h) => isToets(h) && h.datum >= vandaag.getTime() && h.datum < vandaag.getTime() + 15 * DAY);
-  if (voorMorgen.length) {
-    html += `<div class="h">Huiswerk voor ${volgendeDag && !echt.some((l) => l.b > nu) ? dagNaam(volgendeDag.d) : 'vandaag en morgen'}<button data-goto="huiswerk">Alles</button></div><div class="list">${voorMorgen.map(hwHtml).join('')}</div>`;
-  } else if (state.huiswerk) {
-    html += `<div class="h">Huiswerk</div><div class="alert sun" style="margin-top:0">${icon('check')}<span>Niets meer te doen voor ${volgendeDag ? dagNaam(volgendeDag.d) : 'morgen'}. Top!</span></div>`;
-  }
-  if (toetsen.length) {
-    html += `<div class="h">Toetsen komende twee weken</div><div class="list">${toetsen.map((h) => `<button class="item" data-hw="${esc(h.id)}">
-      <div class="datum-blok" style="--c:${kleur(h.vak)}"><small>${DAGEN[new Date(h.datum).getDay()].slice(0, 2)}</small>${new Date(h.datum).getDate()}</div>
-      <div class="item-main"><span class="item-t">${esc(h.titel)}</span><span class="item-s">${esc(h.vak)}${h.type === 'GROTE_TOETS' ? ' · grote toets' : ''}</span></div>
-      <div class="item-r">${hoofd(dagNaam(h.datum, false))}</div></button>`).join('')}</div>`;
+  // Hoe de volgende schooldag eruitziet (de docenten geven geen huiswerk via SOMtoday, dus dat staat hier niet)
+  if (volgendeDag && (!echt.some((l) => l.e > nu) || nu > middernacht(new Date()).getTime() + 12 * 3600000)) {
+    const l = volgendeDag.l;
+    const alle = lessenOp(volgendeDag.d);
+    const weg = alle.filter((x) => x.uitval).length;
+    const anders = l.filter((x) => x.letOp).length;
+    html += `<div class="h">${hoofd(dagNaam(volgendeDag.d))}<button data-goto="rooster" data-dag="${ymd(volgendeDag.d)}">Bekijk</button></div>
+      <button class="morgen" data-goto="rooster" data-dag="${ymd(volgendeDag.d)}">
+        <div class="morgen-tijd"><b>${hhmm(l[0].b)}</b><span>tot ${hhmm(l[l.length - 1].e)}</span></div>
+        <div class="item-main"><span class="item-t">${l.length} ${l.length === 1 ? 'les' : 'lessen'}, eerst ${esc(l[0].vak)}${l[0].plek ? ` in ${esc(l[0].plek)}` : ''}</span>
+        <span class="morgen-vakken">${l.map((x) => `<i style="--c:${kleur(x.vak)}" title="${esc(x.vak)}"></i>`).join('')}</span>
+        ${weg || anders ? `<span class="item-s">${[weg ? `${weg} ${weg === 1 ? 'les vervalt' : 'lessen vervallen'}` : '', anders ? `${anders} ${anders === 1 ? 'wijziging' : 'wijzigingen'}` : ''].filter(Boolean).join(' · ')}</span>` : ''}</div></button>`;
   }
 
   // Laatste cijfers
   const cijfers = state.cijfers?.cijfers || [];
   if (cijfers.length) {
     const gezien = new Set(state.gezienCijfers || []);
-    html += `<div class="h">Laatste cijfers<button data-goto="cijfers">Alle cijfers</button></div><div class="mini">${cijfers.slice(0, 8).map((c) => `<button class="mini-grade${c.voldoende === false || (c.cijfer != null && c.cijfer < 5.5) ? ' bad' : c.cijfer != null ? ' good' : ''}${gezien.has(c.id) ? '' : ' nieuw'}" data-cijfer="${esc(c.id)}">
+    const vakken = perVak(cijfers).filter((v) => v.gem != null);
+    const gem = vakken.length ? vakken.reduce((x, v) => x + v.gem, 0) / vakken.length : null;
+    const onv = vakken.filter((v) => v.gem < 5.5);
+    html += `<div class="h">Cijfers<button data-goto="cijfers">Alle cijfers</button></div>
+      <div class="stats" style="margin-bottom:8px"><button class="stat" data-goto="cijfers"><b class="${gem != null && gem < 5.5 ? 'bad' : ''}">${fmt(gem)}</b><span>gemiddeld</span></button>
+      <button class="stat" data-goto="cijfers"><b>${cijfers.filter((c) => c.datum > nu - 14 * DAY).length}</b><span>nieuw, 2 weken</span></button>
+      <button class="stat" ${onv.length === 1 ? `data-vak="${esc(onv[0].vak)}"` : 'data-goto="cijfers"'}><b style="color:${onv.length ? 'var(--bad)' : 'var(--good)'}">${onv.length}</b><span>${onv.length === 1 ? esc(onv[0].vak.toLowerCase()) + ' onv.' : 'onvoldoendes'}</span></button></div>
+      <div class="mini">${cijfers.slice(0, 8).map((c) => `<button class="mini-grade${c.voldoende === false || (c.cijfer != null && c.cijfer < 5.5) ? ' bad' : c.cijfer != null ? ' good' : ''}${gezien.has(c.id) ? '' : ' nieuw'}" data-cijfer="${esc(c.id)}">
       <b>${state.verborgen && !gezien.has(c.id) ? '?' : esc(c.tekst)}</b><span>${esc(c.vak)}</span></button>`).join('')}</div>`;
   }
 
@@ -923,28 +930,26 @@ function hwHtml(h) {
   return `<div class="hw${klaar ? ' gemaakt' : ''}" data-hw="${esc(h.id)}" role="button" tabindex="0">
     <button class="check" data-vink="${esc(h.id)}" aria-label="${klaar ? 'Niet gemaakt' : 'Gemaakt'}" aria-pressed="${klaar}">${icon('check')}</button>
     <div class="hw-main"><span class="hw-t">${esc(h.titel)}</span>${tekst && tekst !== h.titel ? `<span class="hw-s">${esc(tekst)}</span>` : ''}
-    <div class="hw-meta">${h.vak ? `<span class="vak-dot" style="--c:${kleur(h.vak)}">${esc(h.vak)}</span>` : ''}${h.type === 'GROTE_TOETS' ? '<span class="tag bad">Grote toets</span>' : h.type === 'TOETS' ? '<span class="tag bad">Toets</span>' : ''}${h.soort === 'week' ? '<span class="tag">Hele week</span>' : ''}${h.eigen ? '<span class="tag acc">Eigen taak</span>' : ''}${h.bijlagen.length ? `<span class="tag">${icon('clip')}${h.bijlagen.length}</span>` : ''}</div></div></div>`;
+    <div class="hw-meta">${h.vak ? `<span class="vak-dot" style="--c:${kleur(h.vak)}">${esc(h.vak)}</span>` : ''}${h.type === 'GROTE_TOETS' ? '<span class="tag bad">Grote toets</span>' : h.type === 'TOETS' ? '<span class="tag bad">Toets</span>' : ''}${h.soort === 'week' ? '<span class="tag">Hele week</span>' : ''}${h.bijlagen.length ? `<span class="tag">${icon('clip')}${h.bijlagen.length}</span>` : ''}</div></div></div>`;
 }
 
 function renderHuiswerk() {
   const view = $('#view');
-  if (!state.huiswerk && !state.eigen.length) { view.innerHTML = '<div class="skel"></div><div class="skel"></div><div class="skel"></div>'; return; }
   const vandaag = middernacht(new Date()).getTime();
   const alle = huiswerkLijst();
-  const tel = {
-    open: alle.filter((h) => !isGemaakt(h) && (h.tot || h.datum) >= vandaag).length,
-    toetsen: alle.filter((h) => isToets(h) && h.datum >= vandaag).length,
-  };
-  const filters = { open: 'Te doen', toetsen: 'Toetsen', alles: 'Alles', gemaakt: 'Gemaakt' };
-  let lijst = alle;
-  if (state.hwFilter === 'open') lijst = alle.filter((h) => !isGemaakt(h) && (h.tot || h.datum) >= vandaag);
+  const open = (h) => !isGemaakt(h) && (h.tot || h.datum) >= vandaag - 7 * DAY;
+  const tel = { open: alle.filter(open).length, toetsen: alle.filter((h) => isToets(h) && h.datum >= vandaag).length };
+  const filters = { open: 'Te doen', toetsen: 'Toetsen', gemaakt: 'Gemaakt' };
+  if (!filters[state.hwFilter]) state.hwFilter = 'open';
+  let lijst = alle.filter(open);
   if (state.hwFilter === 'toetsen') lijst = alle.filter((h) => isToets(h) && h.datum >= vandaag);
-  if (state.hwFilter === 'gemaakt') lijst = alle.filter(isGemaakt).reverse();
-  if (state.hwFilter === 'alles') lijst = alle.filter((h) => (h.tot || h.datum) >= vandaag - 7 * DAY);
+  if (state.hwFilter === 'gemaakt') lijst = alle.filter(isGemaakt).reverse().slice(0, 60);
 
   let html = `<div class="chips">${Object.entries(filters).map(([k, t]) => `<button class="chip" data-filter="${k}" aria-pressed="${state.hwFilter === k}">${t}${tel[k] ? ` <small>${tel[k]}</small>` : ''}</button>`).join('')}</div>`;
   if (!lijst.length) {
-    html += `<div class="empty">${icon(state.hwFilter === 'open' ? 'check' : 'book')}<b>${state.hwFilter === 'open' ? 'Alles af!' : 'Niets hier'}</b>${state.hwFilter === 'open' ? 'Je hebt geen open huiswerk. Tijd voor iets leukers.' : 'Hier staat (nog) niets.'}</div>`;
+    html += state.hwFilter === 'open' && !alle.length
+      ? `<div class="empty">${icon('taken')}<b>Je eigen planner</b>Krijg je in de les huiswerk of een toets op? Zet het hier met de plusknop. Je krijgt de avond ervoor een herinnering.<button class="btn primary" data-nieuw style="margin-top:6px">${icon('plus')}Eerste taak toevoegen</button></div>`
+      : `<div class="empty">${icon(state.hwFilter === 'open' ? 'check' : 'taken')}<b>${state.hwFilter === 'open' ? 'Alles af!' : 'Niets hier'}</b>${state.hwFilter === 'open' ? 'Je hebt niets meer te doen. Tijd voor iets leukers.' : state.hwFilter === 'toetsen' ? 'Geen toetsen gepland. Zet er een in met de +.' : 'Nog niets afgevinkt.'}</div>`;
   } else {
     // groeperen per dag (weektaken apart bovenaan)
     const week = lijst.filter((h) => h.soort === 'week');
@@ -958,8 +963,8 @@ function renderHuiswerk() {
     }
     for (const [, g] of groepen) {
       const d = g[0].datum;
-      const verlopen = d < vandaag;
-      html += `<div class="h"><span${verlopen ? ' style="color:var(--bad)"' : ''}>${hoofd(dagNaam(d))}${verlopen && state.hwFilter === 'open' ? ' · te laat' : ''}</span>${!['vandaag', 'morgen', 'gisteren'].includes(dagNaam(d)) ? '' : `<span>${datumKort(d)}</span>`}</div><div class="list">${g.map(hwHtml).join('')}</div>`;
+      const verlopen = d < vandaag && state.hwFilter !== 'gemaakt';
+      html += `<div class="h"><span${verlopen ? ' style="color:var(--bad)"' : ''}>${hoofd(dagNaam(d))}${verlopen ? ' · te laat' : ''}</span>${['vandaag', 'morgen', 'gisteren'].includes(dagNaam(d)) ? `<span>${datumKort(d)}</span>` : ''}</div><div class="list">${g.map(hwHtml).join('')}</div>`;
     }
   }
   view.innerHTML = html;
@@ -983,9 +988,10 @@ function huiswerkSheet(id) {
     const i = state.eigen.findIndex((t) => t.id === h.id);
     const weg = state.eigen.splice(i, 1)[0];
     zet('eigen', state.eigen);
+    syncHerinneringen();
     closeSheet();
     render();
-    toast('Taak verwijderd', { label: 'Ongedaan maken', run: () => { state.eigen.splice(i, 0, weg); zet('eigen', state.eigen); render(); } });
+    toast('Taak verwijderd', { label: 'Ongedaan maken', run: () => { state.eigen.splice(i, 0, weg); zet('eigen', state.eigen); syncHerinneringen(); render(); } });
   };
   if ($('#hwDeel')) $('#hwDeel').onclick = () => {
     const t = `${h.vak ? h.vak + ': ' : ''}${h.titel} (${dagNaam(h.datum)})\n${platteTekst(h.html)}`;
@@ -1007,6 +1013,18 @@ function vink(id) {
   }
 }
 
+// Herinneringen voor je eigen taken: de app zet ze in Android (ook als CijferNu dicht is).
+function syncHerinneringen() {
+  if (!native?.setHerinneringen || demo) return;
+  const nu = Date.now();
+  const lijst = state.eigen.filter((t) => !t.gemaakt && t.herinner).map((t) => {
+    const d = new Date(t.datum);
+    const at = t.herinner === 'ochtend' ? new Date(d.getFullYear(), d.getMonth(), d.getDate(), 7, 0) : new Date(d.getFullYear(), d.getMonth(), d.getDate() - 1, 19, 0);
+    return { id: t.id, titel: t.toets ? `Morgen toets${t.vak ? ' ' + t.vak.toLowerCase() : ''}` : t.herinner === 'ochtend' ? 'Vandaag inleveren' : 'Voor morgen', tekst: t.titel, at: at.getTime() };
+  }).filter((h) => h.at > nu);
+  try { native.setHerinneringen(JSON.stringify(lijst)); } catch (e) {}
+}
+
 function nieuweTaak() {
   haptic();
   const morgen = plusDagen(new Date(), 1);
@@ -1017,6 +1035,7 @@ function nieuweTaak() {
       <label><span class="field-label">Vak</span><select class="field" id="tVak"><option value="">Geen vak</option>${vakken.map((v) => `<option>${esc(v)}</option>`).join('')}</select></label>
       <label><span class="field-label">Voor wanneer?</span><input class="field" id="tDatum" type="date" value="${ymd(morgen)}" required></label>
       <label class="opt"><span class="grow">Het is een toets<small>Komt bij je toetsen te staan</small></span><input type="checkbox" class="switch" id="tToets"></label>
+      ${native ? `<label><span class="field-label">Herinnering</span><select class="field" id="tHerinner"><option value="avond">De avond ervoor, 19:00</option><option value="ochtend">Die ochtend, 7:00</option><option value="">Geen herinnering</option></select></label>` : ''}
       <label><span class="field-label">Notitie</span><textarea class="field" id="tNotitie" rows="3" maxlength="2000"></textarea></label>
       <button class="btn primary big" type="submit">Toevoegen</button>
     </form>`);
@@ -1027,12 +1046,14 @@ function nieuweTaak() {
     state.eigen.push({
       id: 'eigen-' + Date.now().toString(36), soort: 'dag', titel: $('#tTitel').value.trim(), vak: $('#tVak').value, afk: '',
       datum: new Date(j, m - 1, d).getTime(), toets: $('#tToets').checked, notitie: $('#tNotitie').value.trim(), gemaakt: false,
+      herinner: $('#tHerinner') ? $('#tHerinner').value : '',
     });
     zet('eigen', state.eigen);
+    syncHerinneringen();
     haptic('confirm');
     closeSheet();
     toast('Taak toegevoegd');
-    if (state.view !== 'vandaag') setView('huiswerk'); else render();
+    setView('huiswerk');
   };
 }
 
@@ -1145,7 +1166,7 @@ function instellingenSheet() {
   let m = {};
   try { m = JSON.parse(native?.meldingen?.() || '{}'); } catch (e) {}
   const mogen = native?.meldingenMogen ? native.meldingenMogen() : true;
-  const soorten = [['cijfers', 'Nieuwe cijfers', 'Meteen als een cijfer is ingevoerd'], ['rooster', 'Roosterwijzigingen', 'Uitval en ander lokaal, deze en volgende week'], ['toetsen', 'Nieuwe toetsen', 'Als er een toets bij komt'], ['huiswerk', 'Nieuw huiswerk', 'Elke nieuwe huiswerkopdracht'], ['berichten', 'Berichten', 'Van docenten en mentor']];
+  const soorten = [['cijfers', 'Nieuwe cijfers', 'Meteen als een cijfer is ingevoerd'], ['rooster', 'Roosterwijzigingen', 'Uitval en ander lokaal, deze en volgende week'], ['berichten', 'Berichten', 'Van docenten en mentor']];
   openSheet('Instellingen', `
     <div class="group"><h3>Thema</h3><div class="seg" role="radiogroup" id="themeSeg" style="margin:0">${[['systeem', 'Systeem'], ['licht', 'Licht'], ['donker', 'Donker']].map(([k, t]) => `<button role="radio" data-thema="${k}" aria-checked="${pref === k}">${t}</button>`).join('')}</div></div>
     ${native ? `<div class="group"><h3>Meldingen</h3>
@@ -1290,7 +1311,7 @@ function syncGlassBar() {
       const r = el.getBoundingClientRect();
       return { x: r.left, y: r.top, w: r.width, h: r.height };
     };
-    const names = { vandaag: 'home', rooster: 'calendar', cijfers: 'chart', huiswerk: 'book' };
+    const names = { vandaag: 'home', rooster: 'calendar', cijfers: 'chart', huiswerk: 'taken' };
     const tabs = $$('#navPill [data-nav]').map((b) => ({ id: b.dataset.nav, title: b.textContent.trim(), icon: ICONS[names[b.dataset.nav]] }));
     const visible = !$('#app').hidden && !$('#sheetBack');
     const bar = { pill: box($('#navPill')), add: box($('#navAdd')), tabs, active: state.view, dark: document.documentElement.dataset.theme === 'donker', visible };
@@ -1336,6 +1357,7 @@ $('#msgBtn').addEventListener('click', () => { haptic(); berichtenSheet(); });
 document.addEventListener('click', (e) => {
   const t = e.target;
   let b;
+  if (t.closest('[data-nieuw]')) { nieuweTaak(); return; }
   if ((b = t.closest('[data-vink]'))) { e.stopPropagation(); vink(b.dataset.vink); return; }
   if ((b = t.closest('[data-goto]'))) {
     if (b.dataset.dag) { const [j, m, d] = b.dataset.dag.split('-').map(Number); state.gekozen = new Date(j, m - 1, d); state.maandag = maandagVan(state.gekozen); }
@@ -1396,6 +1418,7 @@ function startApp() {
   render();
   ververs(state.view, false);
   ververs('vandaag', true);
+  syncHerinneringen();
   try { native?.ready?.(); } catch (e) {}
 }
 function uitgelogd(bericht) {
@@ -1423,6 +1446,15 @@ window.cijferIngelogd = (fout) => {
 $('#demoBtn').addEventListener('click', () => {
   demo = true;
   zet('demo', true);
+  if (!state.eigen.length) {
+    const d = (n) => middernacht(plusDagen(new Date(), n)).getTime();
+    state.eigen = [
+      { id: 'eigen-d1', soort: 'dag', titel: 'Opgaven 4.12 t/m 4.20', vak: 'Wiskunde B', afk: '', datum: d(1), toets: false, notitie: 'Bij 4.18 je berekening laten zien', gemaakt: false, herinner: 'avond' },
+      { id: 'eigen-d2', soort: 'dag', titel: 'Woordjes unit 5 leren', vak: 'Engels', afk: '', datum: d(2), toets: false, notitie: '', gemaakt: false, herinner: 'avond' },
+      { id: 'eigen-d3', soort: 'dag', titel: 'Toets H5', vak: 'Natuurkunde', afk: '', datum: d(4), toets: true, notitie: 'Paragraaf 1 t/m 4, rekenmachine en Binas mee', gemaakt: false, herinner: 'avond' },
+    ];
+    zet('eigen', state.eigen);
+  }
   haptic();
   startApp();
   toast('Dit is een demo met verzonnen gegevens');

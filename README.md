@@ -1,16 +1,16 @@
 # CijferNu
 
-SOMtoday, maar dan fijn. Je cijfers, rooster, huiswerk, berichten en meldingen in één rustige Android-app.
+SOMtoday, maar dan fijn. Je cijfers, rooster, berichten en meldingen in één rustige Android-app.
 Download de nieuwste `CijferNu.apk` bij [Releases](../../releases/latest); daarna werkt hij zichzelf bij.
 
 ## Wat hij kan
 
-- **Vandaag**: welke les nu bezig is of als volgende komt, uitval, huiswerk voor morgen, toetsen van de komende twee weken, je laatste cijfers en de volgende vakantie.
-- **Rooster**: per week, vegen voor de volgende dag, uitval doorgestreept, lokaalwijzigingen en huiswerk of toetsen bij de les.
+- **Vandaag**: welke les nu bezig is of als volgende komt, uitval, hoe morgen eruitziet, je cijfers in het kort en de volgende vakantie. (Geen huiswerk: dat zetten de docenten niet in SOMtoday.)
+- **Rooster**: per week, vegen voor de volgende dag, uitval doorgestreept en lokaalwijzigingen.
 - **Cijfers**: nieuwste eerst of per vak, gemiddelden per periode, een grafiek per vak en *Wat moet ik halen?*. Nieuwe cijfers kun je eerst verbergen tot je erop tikt.
-- **Huiswerk**: afvinken (gaat ook naar SOMtoday), toetsen, bijlagen en eigen taken (de +-knop).
+- **Taken**: je eigen planner (de +-knop) voor huiswerk en toetsen die je in de les opkrijgt, met een herinnering de avond ervoor of die ochtend. Zet een docent toch iets in SOMtoday, dan staat het er ook bij.
 - **Berichten**, **afwezigheid**, **leermiddelen** en je **rooster in je agenda** (iCal-link).
-- **Meldingen**: nieuwe cijfers, uitval of een ander lokaal, nieuwe toetsen of nieuw huiswerk en berichten. De app kijkt ongeveer elk kwartier.
+- **Meldingen**: nieuwe cijfers, uitval of een ander lokaal en berichten (de app kijkt ongeveer elk kwartier), plus de herinneringen voor je taken.
 - Een **demo** met verzonnen gegevens, om rond te kijken zonder in te loggen.
 
 ## Hoe het werkt

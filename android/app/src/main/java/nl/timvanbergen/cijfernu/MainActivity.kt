@@ -128,6 +128,7 @@ class MainActivity : ComponentActivity() {
         })
 
         Meldingen.kanalen(this)
+        Taken.kanaal(this)
         if (Som.ingelogd(this)) Meldingen.plan(this)
         handle(intent)
         if (savedInstanceState != null) web.restoreState(savedInstanceState) else web.loadUrl(HOME)
@@ -361,6 +362,13 @@ class MainActivity : ComponentActivity() {
 
         @JavascriptInterface
         fun controleerNu() = Meldingen.nu(this@MainActivity)
+
+        /** De herinneringen voor je eigen taken: steeds de hele lijst [{id, titel, tekst, at}]. */
+        @JavascriptInterface
+        fun setHerinneringen(json: String) {
+            Taken.vervang(this@MainActivity, json)
+            if (json.length > 2) runOnUiThread { vraagMeldingen() }
+        }
 
         /** De pagina is klaar: wachtende acties uitvoeren, en melden als de app net is bijgewerkt. */
         @JavascriptInterface

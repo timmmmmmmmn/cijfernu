@@ -79,6 +79,8 @@ function cijfers() {
 
 function huiswerk(soort) {
   const items = [];
+  // de docenten zetten geen huiswerk in SOMtoday; de demo dus ook niet (de voorbeeldtaken zijn eigen taken)
+  if (soort) return items;
   const vandaag = middernacht(new Date());
   if (soort === 'week') {
     items.push({
