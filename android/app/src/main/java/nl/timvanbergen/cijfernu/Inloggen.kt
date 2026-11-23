@@ -17,6 +17,7 @@ import android.widget.FrameLayout
 import android.widget.LinearLayout
 import android.widget.ProgressBar
 import android.widget.TextView
+import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.OnBackPressedCallback
 import androidx.core.view.ViewCompat
@@ -26,12 +27,16 @@ import androidx.core.view.WindowInsetsCompat
 /**
  * Inloggen bij SOMtoday zelf: school kiezen en inloggen zoals altijd (ook via Microsoft of Entree).
  * Aan het eind stuurt SOMtoday je naar somtoday://…; die link vangen we hier af.
+ *
+ * Geopend via cijfernu://horloge (de horloge-app vraagt daarom op de telefoon) is het een inlog voor het horloge:
+ * de tokens gaan dan naar het horloge en de telefoon bewaart ze niet; zo heeft het horloge een eigen sessie.
  */
 class Inloggen : ComponentActivity() {
 
     private lateinit var web: WebView
     private lateinit var laden: ProgressBar
     private var bezig = false
+    private val voorHorloge get() = intent?.data?.let { it.scheme == "cijfernu" && it.host == "horloge" } == true
 
     @SuppressLint("SetJavaScriptEnabled")
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -54,7 +59,7 @@ class Inloggen : ComponentActivity() {
         }
         kop.addView(sluit, LinearLayout.LayoutParams((52 * density).toInt(), (52 * density).toInt()))
         kop.addView(TextView(this).apply {
-            text = "Inloggen via SOMtoday"
+            text = if (voorHorloge) "Horloge koppelen via SOMtoday" else "Inloggen via SOMtoday"
             textSize = 17f
             setTextColor(Color.WHITE)
         })
@@ -114,12 +119,13 @@ class Inloggen : ComponentActivity() {
         laden.visibility = View.VISIBLE
         Thread {
             val fout = try {
-                Som.klaarMetInloggen(this, url)
+                if (voorHorloge) Horloge.stuurTokens(this, Som.wisselCode(this, url)) else Som.klaarMetInloggen(this, url)
                 null
             } catch (e: Exception) {
                 e.message ?: "Inloggen mislukt"
             }
             runOnUiThread {
+                if (voorHorloge) Toast.makeText(this, fout ?: "Je horloge is gekoppeld", Toast.LENGTH_LONG).show()
                 setResult(Activity.RESULT_OK, Intent().putExtra("fout", fout))
                 finish()
             }

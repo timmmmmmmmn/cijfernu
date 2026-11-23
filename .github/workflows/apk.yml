@@ -1,6 +1,7 @@
 name: APK bouwen
 
-# Bij elke wijziging aan de Android-app (android/ of de pagina's in app/): een ondertekende APK bouwen en als release publiceren.
+# Bij elke wijziging aan de Android-app (android/ of de pagina's in app/): ondertekende APK's bouwen (telefoon + Wear OS-horloge)
+# en als release publiceren.
 # De app kijkt zelf op GitHub of er een nieuwere release is (zie Updater.kt).
 on:
   push:
@@ -37,8 +38,8 @@ jobs:
         env:
           KEYSTORE_BASE64: ${{ secrets.CIJFERNU_KEYSTORE_BASE64 }}
 
-      - name: APK bouwen
-        run: ./gradlew assembleRelease --no-configuration-cache --console=plain
+      - name: APK's bouwen
+        run: ./gradlew :app:assembleRelease :wear:assembleRelease --no-configuration-cache --console=plain
         env:
           CIJFERNU_KEYSTORE: ${{ runner.temp }}/cijfernu-release.jks
           CIJFERNU_KEYSTORE_PASSWORD: ${{ secrets.CIJFERNU_KEYSTORE_PASSWORD }}
@@ -51,8 +52,9 @@ jobs:
           COMMIT_MSG: ${{ github.event.head_commit.message }}
         run: |
           cp app/build/outputs/apk/release/app-release.apk CijferNu.apk
+          cp wear/build/outputs/apk/release/wear-release.apk WearOS-CijferNu.apk
           printf '%s\n' "${COMMIT_MSG:-Handmatig gebouwd}" > notes.md
-          gh release create "v1.0.${{ github.run_number }}" CijferNu.apk \
+          gh release create "v1.0.${{ github.run_number }}" CijferNu.apk WearOS-CijferNu.apk \
             --title "CijferNu 1.0.${{ github.run_number }}" \
             --notes-file notes.md \
             --latest

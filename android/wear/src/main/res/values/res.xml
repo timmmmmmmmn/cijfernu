@@ -1,0 +1,8 @@
+<resources>
+    <string name="app_name">CijferNu</string>
+    <color name="launcher_bg">#1200A2</color>
+    <!-- Zo vindt de telefoon het horloge waar CijferNu op staat -->
+    <string-array name="android_wear_capabilities" translatable="false">
+        <item>cijfernu_horloge</item>
+    </string-array>
+</resources>

@@ -44,6 +44,9 @@ android {
         }
     }
 
+    // Som.kt en SomData.kt staan in gedeeld/: de horloge-app (../wear) gebruikt ze ook.
+    sourceSets["main"].kotlin.directories.add("../gedeeld")
+
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_11
         targetCompatibility = JavaVersion.VERSION_11
@@ -62,4 +65,7 @@ dependencies {
     implementation(libs.androidx.activity)
     implementation(libs.androidx.customview)
     implementation(libs.androidx.work)
+    implementation(libs.play.services.wearable)
+    // play-services brengt een oude fragment-versie mee; registerForActivityResult wil minstens 1.3
+    implementation(libs.androidx.fragment)
 }

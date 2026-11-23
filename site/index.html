@@ -266,6 +266,7 @@ footer a { color: var(--muted); }
             <li><span>Zegt <b>Play Protect</b> dat de app onbekend is? Tik op <i>Meer details</i> en <i>Toch installeren</i>. De app staat niet in de Play Store, daarom.</span></li>
             <li><span><b>Log in</b> met je school, precies zoals je gewend bent. Daarna werkt CijferNu zichzelf voortaan vanzelf bij.</span></li>
           </ol>
+          <p><b>Wear OS-horloge?</b> Zet <a href="https://github.com/timmmmmmmmn/cijfernu/releases/latest/download/WearOS-CijferNu.apk">WearOS-CijferNu.apk</a> erop (met adb) en tik op <i>Koppel met telefoon</i>. Dan zie je je rooster en nieuwste cijfers op je pols.</p>
         </div>
         <div class="kaart">
           <h3>Jouw gegevens blijven van jou</h3>
@@ -307,7 +308,7 @@ fetch('https://api.github.com/repos/timmmmmmmmn/cijfernu/releases/latest')
   .then(function (r) { return r.ok ? r.json() : null; })
   .then(function (d) {
     if (!d || !d.tag_name) return;
-    var apk = (d.assets || []).filter(function (a) { return /\.apk$/.test(a.name); })[0];
+    var apk = (d.assets || []).filter(function (a) { return a.name === 'CijferNu.apk'; })[0];
     var mb = apk ? ' · ' + (apk.size / 1048576).toFixed(1).replace('.', ',') + ' MB' : '';
     document.querySelectorAll('[data-versie]').forEach(function (el) { el.textContent = 'Gratis · versie ' + d.tag_name.replace(/^v/, '') + mb; });
   })

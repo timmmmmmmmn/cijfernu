@@ -24,3 +24,4 @@ dependencyResolutionManagement {
 
 rootProject.name = "CijferNu"
 include(":app")
+include(":wear")

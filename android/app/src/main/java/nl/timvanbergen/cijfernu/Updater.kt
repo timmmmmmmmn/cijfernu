@@ -110,7 +110,8 @@ object Updater {
             val assets = json.optJSONArray("assets") ?: return null
             for (i in 0 until assets.length()) {
                 val a = assets.getJSONObject(i)
-                if (a.optString("name").endsWith(".apk")) {
+                // alleen de telefoon-APK, niet die voor het horloge
+                if (a.optString("name") == "CijferNu.apk") {
                     return Release(code, tag.removePrefix("v"), json.optString("body").trim(), a.getString("browser_download_url"))
                 }
             }

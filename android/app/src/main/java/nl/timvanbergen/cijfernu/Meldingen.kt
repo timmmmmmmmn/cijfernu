@@ -17,14 +17,10 @@ import androidx.work.PeriodicWorkRequestBuilder
 import androidx.work.WorkManager
 import androidx.work.Worker
 import androidx.work.WorkerParameters
-import org.json.JSONArray
 import org.json.JSONObject
-import java.time.DayOfWeek
 import java.time.LocalDate
-import java.time.OffsetDateTime
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
-import java.time.temporal.IsoFields
 import java.util.Locale
 import java.util.concurrent.TimeUnit
 
@@ -41,8 +37,6 @@ object Meldingen {
 
     private val STANDAARD = mapOf("cijfers" to true, "rooster" to true, "berichten" to true, "cijferTonen" to true)
     private val NAMEN = mapOf("cijfers" to "Nieuwe cijfers", "rooster" to "Roosterwijzigingen", "berichten" to "Berichten")
-
-    private val CIJFERTYPES = setOf("Toetskolom", "DeeltoetsKolom", "Werkstukcijferkolom", "Advieskolom", "SamengesteldeToetsKolom", "RapportToetskolom")
 
     fun prefs(ctx: Context) = ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
 
@@ -119,37 +113,17 @@ object Meldingen {
         return nu.filter { (k, v) -> oud.optString(k, "\u0000") != v }.mapValues { (k, _) -> if (oud.has(k)) oud.optString(k) else null }
     }
 
-    private fun linkId(o: JSONObject): String = o.optJSONArray("links")?.optJSONObject(0)?.optString("id").orEmpty().ifEmpty { o.optString("id") }
-
-    private const val CIJFERPARAMS = "type=Toetskolom&type=DeeltoetsKolom&type=Werkstukcijferkolom&type=Advieskolom" +
-        "&additional=vaknaam&additional=resultaatkolom&additional=naamalternatiefniveau&additional=vakuuid&additional=lichtinguuid" +
-        "&sort=desc-geldendResultaatCijferInvoer"
-
-    /** Huidige SOMtoday: voortgangs- en examendossier; oudere: resultaten/huidigVoorLeerling. */
-    private fun haalCijfers(ctx: Context, leerling: Long): List<JSONObject> = try {
-        val voortgang = Som.alles(ctx, "geldendvoortgangsdossierresultaten/leerling/$leerling?$CIJFERPARAMS")
-        val examen = runCatching { Som.alles(ctx, "geldendexamendossierresultaten/leerling/$leerling?$CIJFERPARAMS") }.getOrDefault(emptyList())
-        val ids = voortgang.map { linkId(it) }.filter { it.isNotEmpty() }.toSet()
-        voortgang + examen.filter { linkId(it).let { id -> id.isEmpty() || id !in ids } }
-    } catch (e: Som.Fout) {
-        if (e.status !in listOf(400, 403, 404, 405)) throw e
-        Som.alles(ctx, "resultaten/huidigVoorLeerling/$leerling")
-    }
-
-    private fun resultaat(c: JSONObject): String =
-        listOf("formattedResultaat", "geldendResultaat", "resultaat", "label").map { c.optString(it) }.firstOrNull { it.isNotEmpty() && it != "null" }.orEmpty()
-
     private fun cijfers(ctx: Context, leerling: Long) {
-        val cijfers = haalCijfers(ctx, leerling).filter { (it.optString("type").isEmpty() || it.optString("type") in CIJFERTYPES) && resultaat(it).isNotEmpty() }
-        val sleutels = cijfers.associate { linkId(it) to resultaat(it) }
+        val cijfers = SomData.haalCijfers(ctx, leerling).filter { SomData.isCijfer(it) }
+        val sleutels = cijfers.associate { SomData.linkId(it) to SomData.resultaat(it) }
         val nieuw = nieuw(ctx, "cijfers", sleutels).keys
         val tonen = aan(ctx, "cijferTonen")
-        cijfers.filter { linkId(it) in nieuw }.take(6).forEach { c ->
-            val vak = c.optJSONObject("additionalObjects")?.optString("vaknaam").orEmpty().ifEmpty { c.optJSONObject("vak")?.optString("naam").orEmpty() }.ifEmpty { "een vak" }
-            val cijfer = resultaat(c).replace('.', ',')
+        cijfers.filter { SomData.linkId(it) in nieuw }.take(6).forEach { c ->
+            val vak = SomData.vaknaam(c).ifEmpty { "een vak" }
+            val cijfer = SomData.resultaat(c).replace('.', ',')
             val wat = c.optString("omschrijving").ifEmpty { null }
             meld(
-                ctx, "cijfers", "cijfer-${linkId(c)}".hashCode(),
+                ctx, "cijfers", "cijfer-${SomData.linkId(c)}".hashCode(),
                 if (tonen) "$cijfer voor ${vak.lowercaseFirst()}" else "Nieuw cijfer voor ${vak.lowercaseFirst()}",
                 listOfNotNull(wat, c.optDouble("weging", Double.NaN).takeIf { !it.isNaN() && it > 0 }?.let { "weging ${fmt(it)}x" }).joinToString(" · ").ifEmpty { "Tik om te bekijken" },
                 "cijfers",
@@ -160,21 +134,10 @@ object Meldingen {
     private fun rooster(ctx: Context, leerling: Long) {
         val vandaag = LocalDate.now()
         val lessen = ArrayList<JSONObject>()
-        for (plus in listOf(0L, 7L)) {
-            val d = vandaag.plusDays(plus)
-            val jaar = d.get(IsoFields.WEEK_BASED_YEAR)
-            val week = d.get(IsoFields.WEEK_OF_WEEK_BASED_YEAR)
-            val lijst = runCatching {
-                Som.alles(ctx, "afspraakitems/$leerling/jaar/$jaar/week/$week", "application/vnd.topicus.platinum+json; charset=utf-8")
-            }.getOrElse {
-                val maandag = d.with(DayOfWeek.MONDAY)
-                Som.alles(ctx, "afspraken?begindatum=$maandag&einddatum=${maandag.plusDays(6)}&additional=vak")
-            }
-            lessen.addAll(lijst)
-        }
+        for (plus in listOf(0L, 7L)) lessen.addAll(SomData.week(ctx, leerling, vandaag.plusDays(plus)))
         val nu = System.currentTimeMillis()
         val tot = nu + 7 * 86_400_000L
-        val toekomst = lessen.mapNotNull { les(it) }.filter { it.begin in nu..tot }
+        val toekomst = lessen.mapNotNull { SomData.les(it) }.filter { it.begin in nu..tot }
         val sleutels = toekomst.associate { it.sleutel to "${it.uitval}|${it.lokaal}|${it.begin}" }
         val gewijzigd = nieuw(ctx, "rooster", sleutels)
         toekomst.filter { it.sleutel in gewijzigd }.take(6).forEach { l ->
@@ -188,23 +151,6 @@ object Meldingen {
         }
     }
 
-    private class Les(val sleutel: String, val begin: Long, val uur: Int?, val vak: String, val lokaal: String, val uitval: Boolean, val letOp: String?)
-
-    private fun les(a: JSONObject): Les? {
-        val begin = runCatching { OffsetDateTime.parse(a.optString("beginDatumTijd")).toInstant().toEpochMilli() }.getOrNull() ?: return null
-        val ex = a.optJSONObject("additionalObjects")
-        val vak = (a.optJSONObject("vak") ?: ex?.optJSONObject("vak"))?.optString("naam").orEmpty().ifEmpty { a.optString("titel", "Les") }
-        val meldingen = a.optJSONArray("statusNotifications") ?: JSONArray()
-        var uitval = a.optString("afspraakStatus") == "VERVALLEN" || Regex("vervalt|vervallen|uitval", RegexOption.IGNORE_CASE).containsMatchIn(a.optString("titel"))
-        var letOp: String? = a.optString("wijzigingOmschrijving").ifEmpty { null }
-        for (i in 0 until meldingen.length()) {
-            val m = meldingen.optJSONObject(i) ?: continue
-            if (m.optString("status") == "4007") uitval = true else if (letOp == null && m.optString("status") != "2002") letOp = m.optString("message").ifEmpty { null }
-        }
-        val sleutel = linkId(a).ifEmpty { "$begin-$vak" }
-        return Les(sleutel, begin, a.optInt("beginLesuur", 0).takeIf { it > 0 }, vak, a.optString("locatie"), uitval, letOp)
-    }
-
     private fun berichten(ctx: Context) {
         val a = Som.vraag(ctx, "GET", "boodschappen/conversaties?additional=verzenderCorrespondent&additional=verzondenDoorGebruiker", range = "items=0-49")
         if (a.status !in 200..299) return
@@ -215,10 +161,10 @@ object Meldingen {
             for (j in 0 until b.length()) b.optJSONObject(j)?.let { lijst.add(it) }
         }
         val van = lijst.filter { it.optJSONObject("additionalObjects")?.optBoolean("verzondenDoorGebruiker") != true }
-        val nieuw = nieuw(ctx, "berichten", van.associate { linkId(it) to "1" }).filterValues { it == null }.keys
-        van.filter { linkId(it) in nieuw }.take(4).forEach { b ->
+        val nieuw = nieuw(ctx, "berichten", van.associate { SomData.linkId(it) to "1" }).filterValues { it == null }.keys
+        van.filter { SomData.linkId(it) in nieuw }.take(4).forEach { b ->
             val afzender = b.optJSONObject("additionalObjects")?.optJSONObject("verzenderCorrespondent")?.optString("naam").orEmpty()
-            meld(ctx, "berichten", "msg-${linkId(b)}".hashCode(), if (afzender.isNotEmpty()) "Bericht van $afzender" else "Nieuw bericht", b.optString("onderwerp"), "berichten")
+            meld(ctx, "berichten", "msg-${SomData.linkId(b)}".hashCode(), if (afzender.isNotEmpty()) "Bericht van $afzender" else "Nieuw bericht", b.optString("onderwerp"), "berichten")
         }
     }
 

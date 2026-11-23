@@ -13,7 +13,8 @@ import java.security.SecureRandom
 /**
  * De koppeling met SOMtoday. Inloggen gaat zoals in de officiële leerling-app (OAuth met PKCE);
  * de tokens blijven op de telefoon, er zit geen eigen server tussen.
- * Gebruikt door de pagina (via de brug in MainActivity) en door de meldingen op de achtergrond.
+ * Gebruikt door de pagina (via de brug in MainActivity), door de meldingen op de achtergrond en door de horloge-app
+ * (dit bestand staat in gedeeld/ en zit in beide).
  */
 object Som {
     private const val KLANT = "somtoday-leerling-native"
@@ -56,25 +57,29 @@ object Som {
     }
 
     /** De terugkeer van SOMtoday (somtoday://…?code=…): code inwisselen voor tokens. Niet op de hoofddraad. */
-    fun klaarMetInloggen(ctx: Context, terug: Uri) {
+    fun klaarMetInloggen(ctx: Context, terug: Uri) = bewaar(ctx, wisselCode(ctx, terug))
+
+    /** Alleen de code inwisselen, zonder te bewaren: voor het horloge, dat zo een eigen inlog krijgt. */
+    fun wisselCode(ctx: Context, terug: Uri): JSONObject {
         terug.getQueryParameter("error")?.let { throw Fout("SOMtoday: ${terug.getQueryParameter("error_description") ?: it}") }
         val code = terug.getQueryParameter("code") ?: throw Fout("SOMtoday gaf geen inlogcode terug")
         val p = prefs(ctx)
         val state = terug.getQueryParameter("state")
         if (state != null && state != p.getString("state", null)) throw Fout("Deze inlogpoging is verlopen, probeer het opnieuw")
         val verifier = p.getString("verifier", null) ?: throw Fout("Deze inlogpoging is verlopen, probeer het opnieuw")
-        tokens(
-            ctx, mapOf(
+        val d = vraagTokens(
+            mapOf(
                 "grant_type" to "authorization_code", "code" to code, "redirect_uri" to TERUG,
                 "code_verifier" to verifier, "client_id" to KLANT, "scope" to "openid", "claims" to CLAIMS,
             )
         )
         p.edit().remove("verifier").remove("state").apply()
+        return d
     }
 
-    private fun tokens(ctx: Context, velden: Map<String, String>) {
+    private fun vraagTokens(velden: Map<String, String>): JSONObject {
         val conn = URL("$INLOG/oauth2/token").openConnection() as HttpURLConnection
-        val d = try {
+        return try {
             conn.requestMethod = "POST"
             conn.connectTimeout = 15_000
             conn.readTimeout = 20_000
@@ -99,6 +104,10 @@ object Som {
         } finally {
             conn.disconnect()
         }
+    }
+
+    /** Een tokenantwoord van SOMtoday bewaren (ook als het van de telefoon naar het horloge is gestuurd). */
+    fun bewaar(ctx: Context, d: JSONObject) {
         var school = ""
         runCatching {
             val deel = d.getString("id_token").split(".")[1]
@@ -136,7 +145,7 @@ object Som {
         if (!forceer && access != null && System.currentTimeMillis() < p.getLong("verloopt", 0) - 90_000) return access
         val refresh = p.getString("refresh", null) ?: throw Fout("Niet ingelogd", 401)
         try {
-            tokens(ctx, mapOf("grant_type" to "refresh_token", "refresh_token" to refresh, "client_id" to KLANT, "scope" to "openid", "claims" to CLAIMS))
+            bewaar(ctx, vraagTokens(mapOf("grant_type" to "refresh_token", "refresh_token" to refresh, "client_id" to KLANT, "scope" to "openid", "claims" to CLAIMS)))
         } catch (e: Fout) {
             if (e.status == 401) uitloggen(ctx)
             throw e
